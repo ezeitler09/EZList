@@ -14,6 +14,13 @@ export default function RecipeImportSheet({ overrides, activeNames, sections, on
   const [title, setTitle] = useState(null);
   const [rows, setRows] = useState([]);
   const fileRef = useRef(null);
+  const cameraRef = useRef(null);
+
+  function onFilePicked(e) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (f) run(() => parseImage(f));
+  }
 
   function toReview(ingredients, recipeTitle = null) {
     if (!ingredients.length) {
@@ -140,14 +147,18 @@ export default function RecipeImportSheet({ overrides, activeNames, sections, on
               Snap a cookbook page or upload a screenshot of a recipe. The photo is
               read once and never stored.
             </p>
-            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
-              onChange={e => {
-                const f = e.target.files?.[0];
-                e.target.value = '';
-                if (f) run(() => parseImage(f));
-              }} />
-            <button className="btn" disabled={busy} onClick={() => fileRef.current?.click()}>
-              {busy ? 'Reading photo…' : '📷 Take or choose a photo'}
+            {/* capture="environment" launches the camera directly (reliable on
+                iOS PWAs and Android); the second input opens the photo library. */}
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+              style={{ display: 'none' }} onChange={onFilePicked} />
+            <input ref={fileRef} type="file" accept="image/*"
+              style={{ display: 'none' }} onChange={onFilePicked} />
+            <button className="btn" disabled={busy} onClick={() => cameraRef.current?.click()}>
+              {busy ? 'Reading photo…' : '📷 Take a photo'}
+            </button>
+            <div style={{ height: 8 }} />
+            <button className="btn secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+              🖼️ Choose from gallery
             </button>
           </>
         )}
