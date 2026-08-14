@@ -1,13 +1,17 @@
-# 🛒 EZList — Shared Grocery List (v1, Milestone 1)
+# 🛒 EZList — Shared Grocery List (v2, Milestone 2)
 
 A mobile-friendly shared grocery list for your household. Real-time sync between
 your phones, tap-to-check items, automatic grouping by store section, and
 passwordless profiles — just a 6-letter household code.
 
-**What's in this release (Milestone 1):** shared real-time list, check-off flow,
-store-section auto-categorization with per-household corrections, section
-re-ordering to match your store, household join codes, PWA (add to home screen),
-dark mode. Recipe import (paste / URL / photo OCR) is Milestone 2.
+**Milestone 1:** shared real-time list, check-off flow, store-section
+auto-categorization with per-household corrections, section re-ordering,
+household join codes, PWA (add to home screen), dark mode.
+
+**Milestone 2 (this release):** add-from-recipe via the 📖 button — paste text,
+recipe link, or photo/screenshot — with a review screen before anything hits
+your list, duplicate detection against what's already on it, and auto-categorized
+results. Checked items now collapse by default.
 
 ---
 
@@ -47,6 +51,26 @@ dark mode. Recipe import (paste / URL / photo OCR) is Milestone 2.
 
 ---
 
+## Recipe import — what works out of the box
+
+Tap **📖** next to the add bar:
+
+- **📋 Paste** — works immediately, no extra setup. A built-in parser strips quantities and prep noise ("2 lbs chicken thighs, cut into pieces" → *Chicken thighs, 2 lbs*).
+- **🔗 Link** — works immediately for most recipe sites (they embed structured recipe data the server reads directly). Unusual or paywalled sites fall back to AI extraction if enabled; otherwise the app suggests pasting instead.
+- **📷 Photo** — requires AI extraction (below).
+
+### Enabling AI extraction (photo import + smarter parsing)
+
+1. Get an API key at [console.anthropic.com](https://console.anthropic.com) (pay-as-you-go; a recipe import costs a fraction of a cent).
+2. In Vercel: your project → **Settings → Environment Variables** → add `ANTHROPIC_API_KEY` = your key → **Redeploy**.
+
+Photos are processed in memory and never stored. Only signed-in household
+members can call these endpoints, so strangers can't spend your credits.
+
+> Note for drag-and-drop (Netlify) deploys: the recipe endpoints live in `/api`
+> and need a Vercel (or similar) deploy from the repo — paste import still works
+> everywhere via the built-in parser.
+
 ## Everyday use
 
 - **Add items** with the bar at the bottom — they're auto-sorted into store sections.
@@ -76,5 +100,4 @@ src/lib/supabase.js        # client config (env vars or one-time paste)
 
 ## Roadmap
 
-- **Milestone 2:** recipe → list (paste text, recipe URL, photo/screenshot OCR) with a review screen before items hit the list.
-- **Milestone 3:** autocomplete from history, offline edit queue, polish.
+- **Milestone 3:** autocomplete from history, offline edit queue, saved recipes library, polish.

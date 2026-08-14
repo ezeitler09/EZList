@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase.js';
 import { categorize, normalizeKey, SECTIONS } from '../lib/categorize.js';
 import ItemEditSheet from './ItemEditSheet.jsx';
 import SettingsSheet from './SettingsSheet.jsx';
+import RecipeImportSheet from './RecipeImportSheet.jsx';
 
 export default function ListScreen({ profile, household: initialHousehold }) {
   const [household, setHousehold] = useState(initialHousehold);
@@ -12,6 +13,8 @@ export default function ListScreen({ profile, household: initialHousehold }) {
   const [newItem, setNewItem] = useState('');
   const [editing, setEditing] = useState(null); // item being edited
   const [showSettings, setShowSettings] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showChecked, setShowChecked] = useState(false); // collapsed by default
   const [connected, setConnected] = useState(true);
   const inputRef = useRef(null);
 
@@ -121,6 +124,28 @@ export default function ListScreen({ profile, household: initialHousehold }) {
     await supabase.from('items').delete().eq('id', item.id);
   }
 
+  // Bulk add from the recipe import review screen (Milestone 2)
+  async function addImported(rows, source) {
+    setShowImport(false);
+    const newItems = rows.map(r => ({
+      household_id: hid,
+      name: r.name.trim(),
+      qty: r.qty?.trim() || null,
+      category: r.category,
+      added_by: profile.id,
+      source
+    }));
+    const { data, error } = await supabase.from('items').insert(newItems).select();
+    if (error) {
+      alert("Couldn't add those items — check your connection and try again.");
+      return;
+    }
+    setItems(prev => {
+      const known = new Set(prev.map(i => i.id));
+      return [...prev, ...data.filter(d => !known.has(d.id))];
+    });
+  }
+
   async function clearChecked() {
     const ids = items.filter(i => i.checked).map(i => i.id);
     if (!ids.length) return;
@@ -190,10 +215,15 @@ export default function ListScreen({ profile, household: initialHousehold }) {
         {checkedItems.length > 0 && (
           <>
             <div className="checked-header">
-              <p className="section-title">Checked ({checkedItems.length})</p>
+              <button className="checked-toggle" onClick={() => setShowChecked(s => !s)}
+                aria-expanded={showChecked}>
+                <span className="section-title" style={{ padding: 0 }}>
+                  {showChecked ? '▾' : '▸'} Checked ({checkedItems.length})
+                </span>
+              </button>
               <button className="clear-btn" onClick={clearChecked}>Clear all</button>
             </div>
-            {checkedItems.map(item => (
+            {showChecked && checkedItems.map(item => (
               <ItemRow key={item.id} item={item} profiles={profiles}
                 onToggle={() => toggleChecked(item)} onEdit={() => setEditing(item)} />
             ))}
@@ -203,6 +233,8 @@ export default function ListScreen({ profile, household: initialHousehold }) {
 
       <form className="add-bar" onSubmit={addItem}>
         <div className="add-bar-inner">
+          <button type="button" className="recipe-btn" aria-label="Add from recipe"
+            title="Add from recipe" onClick={() => setShowImport(true)}>📖</button>
           <input ref={inputRef} value={newItem} onChange={e => setNewItem(e.target.value)}
             placeholder="Add an item (e.g. milk)" aria-label="Add an item" enterKeyHint="done" />
           <button type="submit" className="add-btn" aria-label="Add">+</button>
@@ -214,6 +246,15 @@ export default function ListScreen({ profile, household: initialHousehold }) {
           onSave={updates => saveItemEdit(editing, updates)}
           onDelete={() => deleteItem(editing)}
           onClose={() => setEditing(null)} />
+      )}
+
+      {showImport && (
+        <RecipeImportSheet
+          overrides={overrides}
+          sections={sectionOrder}
+          activeNames={new Set((items ?? []).filter(i => !i.checked).map(i => normalizeKey(i.name)))}
+          onAdd={rows => addImported(rows, 'recipe')}
+          onClose={() => setShowImport(false)} />
       )}
 
       {showSettings && (
