@@ -36,7 +36,7 @@ export default function JoinScreen({ onJoined }) {
     return (
       <div className="center-screen">
         <div>
-          <p className="title">🛒 CartShare</p>
+          <p className="title">🛒 EZList</p>
           <p className="subtitle">A shared grocery list for your household.</p>
         </div>
         <button className="btn" onClick={() => setMode(code ? 'join' : 'create')}>

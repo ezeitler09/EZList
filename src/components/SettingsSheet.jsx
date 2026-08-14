@@ -13,9 +13,9 @@ export default function SettingsSheet({ household, profile, profiles, sectionOrd
   }
 
   async function share() {
-    const text = `Join our grocery list! Open ${joinUrl} and enter code ${household.code}.`;
+    const text = `Join our EZList! Open ${joinUrl} and enter code ${household.code}.`;
     if (navigator.share) {
-      try { await navigator.share({ title: 'CartShare', text, url: joinUrl }); } catch { /* cancelled */ }
+      try { await navigator.share({ title: 'EZList', text, url: joinUrl }); } catch { /* cancelled */ }
     } else {
       await navigator.clipboard.writeText(text);
       alert('Invite copied to clipboard!');

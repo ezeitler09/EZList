@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
-        name: 'CartShare',
-        short_name: 'CartShare',
+        name: 'EZList',
+        short_name: 'EZList',
         description: 'Shared grocery list',
         theme_color: '#16a34a',
         background_color: '#f8faf8',

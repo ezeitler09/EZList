@@ -1,4 +1,4 @@
-# 🛒 CartShare — Shared Grocery List (v1, Milestone 1)
+# 🛒 EZList — Shared Grocery List (v1, Milestone 1)
 
 A mobile-friendly shared grocery list for your household. Real-time sync between
 your phones, tap-to-check items, automatic grouping by store section, and
@@ -16,7 +16,7 @@ dark mode. Recipe import (paste / URL / photo OCR) is Milestone 2.
 ### Step 1 — Create the backend (Supabase)
 
 1. Go to [supabase.com](https://supabase.com) → sign up (free) → **New project**.
-   Pick any name (e.g. `cartshare`) and a region near you. Wait ~1 min for it to provision.
+   Pick any name (e.g. `ezlist`) and a region near you. Wait ~1 min for it to provision.
 2. Enable passwordless sign-in: **Authentication → Sign In / Up** (under Auth Providers) → toggle **Anonymous sign-ins** ON → Save.
 3. Create the database: **SQL Editor → New query** → paste the entire contents of
    [`supabase/migration.sql`](supabase/migration.sql) → **Run**. You should see "Success".
@@ -30,7 +30,7 @@ dark mode. Recipe import (paste / URL / photo OCR) is Milestone 2.
 3. Before clicking Deploy, add two **Environment Variables**:
    - `VITE_SUPABASE_URL` = your Project URL
    - `VITE_SUPABASE_ANON_KEY` = your anon public key
-4. Deploy. You'll get a URL like `https://cartshare-xyz.vercel.app`.
+4. Deploy. You'll get a URL like `https://ezlist-xyz.vercel.app`.
 
 > **No GitHub? Quickest path:** run `npm install && npm run build` locally, then drag the
 > `dist/` folder onto [app.netlify.com/drop](https://app.netlify.com/drop). Since env vars
@@ -51,7 +51,7 @@ dark mode. Recipe import (paste / URL / photo OCR) is Milestone 2.
 
 - **Add items** with the bar at the bottom — they're auto-sorted into store sections.
 - **Tap the circle** to check something off mid-aisle; it moves to "Checked" on both phones instantly. Tap again to undo. Checked items auto-clear after 24 hours, or use **Clear all**.
-- **Tap an item** to edit its name, quantity, or store section. If you move "tortillas" to Bakery, CartShare remembers that for next time.
+- **Tap an item** to edit its name, quantity, or store section. If you move "tortillas" to Bakery, EZList remembers that for next time.
 - **⚙️ Settings** → reorder store sections to match the way you actually walk your store.
 
 ## Development

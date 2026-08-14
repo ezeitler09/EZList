@@ -10,7 +10,7 @@ export default function SetupScreen() {
   return (
     <div className="center-screen">
       <div>
-        <p className="title">🛒 CartShare</p>
+        <p className="title">🛒 EZList</p>
         <p className="subtitle">One-time setup: connect your Supabase project.</p>
       </div>
       <div className="card">
