@@ -16,6 +16,10 @@ export default function ListScreen({ profile, household: initialHousehold }) {
   const [showImport, setShowImport] = useState(false);
   const [showChecked, setShowChecked] = useState(false); // collapsed by default
   const [connected, setConnected] = useState(true);
+  const [view, setView] = useState('list'); // list | recipes
+  const [savedRecipes, setSavedRecipes] = useState(null); // null = loading
+  const [openRecipe, setOpenRecipe] = useState(null); // recipe tapped on Recipes tab
+  const [recipeSearch, setRecipeSearch] = useState('');
   const inputRef = useRef(null);
 
   const hid = household.id;
@@ -25,14 +29,16 @@ export default function ListScreen({ profile, household: initialHousehold }) {
     let channel;
 
     async function load() {
-      const [itemsRes, profilesRes, overridesRes] = await Promise.all([
+      const [itemsRes, profilesRes, overridesRes, recipesRes] = await Promise.all([
         supabase.from('items').select('*').eq('household_id', hid).order('created_at'),
         supabase.from('profiles').select('*').eq('household_id', hid),
-        supabase.from('category_overrides').select('*').eq('household_id', hid)
+        supabase.from('category_overrides').select('*').eq('household_id', hid),
+        supabase.from('recipes').select('*').eq('household_id', hid).order('created_at', { ascending: false })
       ]);
       setItems(itemsRes.data ?? []);
       setProfiles(Object.fromEntries((profilesRes.data ?? []).map(p => [p.id, p])));
       setOverrides(Object.fromEntries((overridesRes.data ?? []).map(o => [o.item_key, o.category])));
+      setSavedRecipes(recipesRes.data ?? []);
 
       // Auto-clear items checked more than 24h ago (1.3)
       const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -145,6 +151,12 @@ export default function ListScreen({ profile, household: initialHousehold }) {
       const known = new Set(prev.map(i => i.id));
       return [...prev, ...data.filter(d => !known.has(d.id))];
     });
+    setView('list'); // show the result of the add
+  }
+
+  async function deleteRecipe(id) {
+    setSavedRecipes(prev => (prev ?? []).filter(r => r.id !== id));
+    await supabase.from('recipes').delete().eq('id', id);
   }
 
   async function clearChecked() {
@@ -181,6 +193,16 @@ export default function ListScreen({ profile, household: initialHousehold }) {
 
   const activeCount = (items ?? []).filter(i => !i.checked).length;
 
+  const filteredRecipes = useMemo(() => {
+    const q = recipeSearch.trim().toLowerCase();
+    const all = savedRecipes ?? [];
+    if (!q) return all;
+    return all.filter(r =>
+      r.title.toLowerCase().includes(q) ||
+      (r.ingredients ?? []).some(i => i.name?.toLowerCase().includes(q))
+    );
+  }, [savedRecipes, recipeSearch]);
+
   // ---------- Render ----------
   return (
     <>
@@ -192,6 +214,7 @@ export default function ListScreen({ profile, household: initialHousehold }) {
         </div>
       </header>
 
+      {view === 'list' && (
       <main className="screen">
         {items === null && <p className="empty">Loading your list…</p>}
 
@@ -231,16 +254,63 @@ export default function ListScreen({ profile, household: initialHousehold }) {
           </>
         )}
       </main>
+      )}
 
-      <form className="add-bar" onSubmit={addItem}>
-        <div className="add-bar-inner">
-          <button type="button" className="recipe-btn" aria-label="Add from recipe"
-            title="Add from recipe" onClick={() => setShowImport(true)}>📖</button>
-          <input ref={inputRef} value={newItem} onChange={e => setNewItem(e.target.value)}
-            placeholder="Add an item (e.g. milk)" aria-label="Add an item" enterKeyHint="done" />
-          <button type="submit" className="add-btn" aria-label="Add">+</button>
-        </div>
-      </form>
+      {view === 'recipes' && (
+        <main className="screen">
+          <input className="field" type="search" placeholder="🔍 Search recipes…"
+            value={recipeSearch} onChange={e => setRecipeSearch(e.target.value)} />
+          <button className="btn" onClick={() => setShowImport(true)}>+ New recipe</button>
+          <div style={{ height: 16 }} />
+          {savedRecipes === null && <p className="empty">Loading your recipes…</p>}
+          {savedRecipes !== null && savedRecipes.length === 0 && (
+            <p className="empty">
+              No saved recipes yet.<br />
+              Import one with <b>+ New recipe</b> and tick “Save this recipe” — it'll live here for
+              two-tap re-adding.
+            </p>
+          )}
+          {filteredRecipes.map(r => (
+            <div className="recipe-card" key={r.id}>
+              <button className="recipe-card-main" onClick={() => setOpenRecipe(r)}>
+                <span className="recipe-title">{r.title}</span>
+                <span className="recipe-meta">
+                  {(r.ingredients ?? []).length} ingredients
+                  {r.source_url ? ' · from link' : ''}
+                </span>
+              </button>
+              <button className="recipe-delete" aria-label={`Delete ${r.title}`}
+                onClick={() => deleteRecipe(r.id)}>✕</button>
+            </div>
+          ))}
+          {savedRecipes !== null && savedRecipes.length > 0 && filteredRecipes.length === 0 && (
+            <p className="empty">No recipes match “{recipeSearch}”.</p>
+          )}
+        </main>
+      )}
+
+      {view === 'list' && (
+        <form className="add-bar" onSubmit={addItem}>
+          <div className="add-bar-inner">
+            <button type="button" className="recipe-btn" aria-label="Add from recipe"
+              title="Add from recipe" onClick={() => setShowImport(true)}>📖</button>
+            <input ref={inputRef} value={newItem} onChange={e => setNewItem(e.target.value)}
+              placeholder="Add an item (e.g. milk)" aria-label="Add an item" enterKeyHint="done" />
+            <button type="submit" className="add-btn" aria-label="Add">+</button>
+          </div>
+        </form>
+      )}
+
+      <nav className="bottom-nav">
+        <button className={`nav-tab ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>
+          <span className="nav-icon">🛒</span>
+          List{activeCount > 0 ? ` (${activeCount})` : ''}
+        </button>
+        <button className={`nav-tab ${view === 'recipes' ? 'active' : ''}`} onClick={() => setView('recipes')}>
+          <span className="nav-icon">📚</span>
+          Recipes{savedRecipes?.length ? ` (${savedRecipes.length})` : ''}
+        </button>
+      </nav>
 
       {editing && (
         <ItemEditSheet item={editing} sections={sectionOrder}
@@ -249,15 +319,17 @@ export default function ListScreen({ profile, household: initialHousehold }) {
           onClose={() => setEditing(null)} />
       )}
 
-      {showImport && (
+      {(showImport || openRecipe) && (
         <RecipeImportSheet
           householdId={hid}
           profileId={profile.id}
           overrides={overrides}
           sections={sectionOrder}
           activeNames={new Set((items ?? []).filter(i => !i.checked).map(i => normalizeKey(i.name)))}
-          onAdd={rows => addImported(rows, 'recipe')}
-          onClose={() => setShowImport(false)} />
+          initialRecipe={openRecipe}
+          onAdd={rows => { setOpenRecipe(null); addImported(rows, 'recipe'); }}
+          onClose={() => { setShowImport(false); setOpenRecipe(null); }}
+          onRecipeSaved={r => setSavedRecipes(prev => [r, ...(prev ?? [])])} />
       )}
 
       {showSettings && (

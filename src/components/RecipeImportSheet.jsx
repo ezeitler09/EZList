@@ -3,12 +3,15 @@ import { supabase } from '../lib/supabase.js';
 import { parseText, parseUrl, parseImage } from '../lib/importApi.js';
 import { categorize, normalizeKey } from '../lib/categorize.js';
 
-// "Add from recipe" flow: Saved / Paste / Link / Photo → review → add.
+// Recipe import flow: Paste / Link / Photo → review → add.
 // Nothing hits the list until the user confirms on the review screen.
-// Imported recipes can be saved to the household's recipe library for
-// two-tap re-adding later (Milestone 3a).
-export default function RecipeImportSheet({ householdId, profileId, overrides, activeNames, sections, onAdd, onClose }) {
-  const [tab, setTab] = useState('saved'); // saved | paste | url | photo
+// When `initialRecipe` is passed (tapped from the Recipes tab), the sheet
+// opens straight into the review screen for that saved recipe.
+export default function RecipeImportSheet({
+  householdId, profileId, overrides, activeNames, sections,
+  initialRecipe = null, onAdd, onClose, onRecipeSaved
+}) {
+  const [tab, setTab] = useState('paste'); // paste | url | photo
   const [step, setStep] = useState('input'); // input | review
   const [text, setText] = useState('');
   const [url, setUrl] = useState('');
@@ -16,7 +19,6 @@ export default function RecipeImportSheet({ householdId, profileId, overrides, a
   const [error, setError] = useState('');
   const [title, setTitle] = useState(null);
   const [rows, setRows] = useState([]);
-  const [savedRecipes, setSavedRecipes] = useState(null); // null = loading
   const [fromSaved, setFromSaved] = useState(false);
   const [saveRecipe, setSaveRecipe] = useState(false);
   const [recipeName, setRecipeName] = useState('');
@@ -25,11 +27,12 @@ export default function RecipeImportSheet({ householdId, profileId, overrides, a
   const cameraRef = useRef(null);
 
   useEffect(() => {
-    supabase.from('recipes').select('*')
-      .eq('household_id', householdId)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => setSavedRecipes(data ?? []));
-  }, [householdId]);
+    if (initialRecipe) {
+      setSourceUrl(initialRecipe.source_url ?? null);
+      toReview(initialRecipe.ingredients ?? [], initialRecipe.title, { fromSaved: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function onFilePicked(e) {
     const f = e.target.files?.[0];
@@ -77,16 +80,6 @@ export default function RecipeImportSheet({ householdId, profileId, overrides, a
     setRows(prev => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   }
 
-  function openSaved(recipe) {
-    setSourceUrl(recipe.source_url);
-    toReview(recipe.ingredients ?? [], recipe.title, { fromSaved: true });
-  }
-
-  async function deleteSaved(id) {
-    setSavedRecipes(prev => prev.filter(r => r.id !== id));
-    await supabase.from('recipes').delete().eq('id', id);
-  }
-
   async function confirmAdd() {
     if (saveRecipe && recipeName.trim()) {
       const { data } = await supabase.from('recipes').insert({
@@ -96,7 +89,7 @@ export default function RecipeImportSheet({ householdId, profileId, overrides, a
         ingredients: rows.map(r => ({ name: r.name.trim(), qty: r.qty?.trim() || null })),
         added_by: profileId
       }).select().single();
-      if (data) setSavedRecipes(prev => [data, ...(prev ?? [])]);
+      if (data) onRecipeSaved?.(data);
     }
     onAdd(rows.filter(r => r.include && r.name.trim()));
   }
@@ -161,7 +154,10 @@ export default function RecipeImportSheet({ householdId, profileId, overrides, a
               : `Add ${includedCount} item${includedCount === 1 ? '' : 's'}${saveRecipe ? ' & save recipe' : ''}`}
           </button>
           <div style={{ height: 8 }} />
-          <button className="btn danger-text" onClick={() => setStep('input')}>Back</button>
+          <button className="btn danger-text"
+            onClick={() => (initialRecipe ? onClose() : setStep('input'))}>
+            {initialRecipe ? 'Cancel' : 'Back'}
+          </button>
         </div>
       </div>
     );
@@ -173,39 +169,13 @@ export default function RecipeImportSheet({ householdId, profileId, overrides, a
       <div className="sheet">
         <h2>Add from recipe</h2>
         <div className="tabs">
-          {[['saved', '📚 Saved'], ['paste', '📋 Paste'], ['url', '🔗 Link'], ['photo', '📷 Photo']].map(([key, label]) => (
+          {[['paste', '📋 Paste'], ['url', '🔗 Link'], ['photo', '📷 Photo']].map(([key, label]) => (
             <button key={key} className={`tab ${tab === key ? 'active' : ''}`}
               onClick={() => { setTab(key); setError(''); }}>
               {label}
             </button>
           ))}
         </div>
-
-        {tab === 'saved' && (
-          <>
-            {savedRecipes === null && <p className="subtitle">Loading your recipes…</p>}
-            {savedRecipes !== null && savedRecipes.length === 0 && (
-              <p className="subtitle" style={{ padding: '10px 0' }}>
-                No saved recipes yet. Import one from the Paste, Link, or Photo tab and
-                tick <b>“Save this recipe”</b> on the review screen — it'll show up here
-                for two-tap re-adding.
-              </p>
-            )}
-            {(savedRecipes ?? []).map(r => (
-              <div className="recipe-card" key={r.id}>
-                <button className="recipe-card-main" onClick={() => openSaved(r)}>
-                  <span className="recipe-title">{r.title}</span>
-                  <span className="recipe-meta">
-                    {(r.ingredients ?? []).length} ingredients
-                    {r.source_url ? ' · from link' : ''}
-                  </span>
-                </button>
-                <button className="recipe-delete" aria-label={`Delete ${r.title}`}
-                  onClick={() => deleteSaved(r.id)}>✕</button>
-              </div>
-            ))}
-          </>
-        )}
 
         {tab === 'paste' && (
           <>
@@ -237,8 +207,6 @@ export default function RecipeImportSheet({ householdId, profileId, overrides, a
               Snap a cookbook page or upload a screenshot of a recipe. The photo is
               read once and never stored.
             </p>
-            {/* capture="environment" launches the camera directly (reliable on
-                iOS PWAs and Android); the second input opens the photo library. */}
             <input ref={cameraRef} type="file" accept="image/*" capture="environment"
               style={{ display: 'none' }} onChange={onFilePicked} />
             <input ref={fileRef} type="file" accept="image/*"

@@ -1,4 +1,4 @@
-# 🛒 EZList — Shared Grocery List (v3)
+# 🛒 EZList — Shared Grocery List (v4)
 
 A mobile-friendly shared grocery list for your household. Real-time sync between
 your phones, tap-to-check items, automatic grouping by store section, and
@@ -13,10 +13,14 @@ photo/screenshot — with a review screen before anything hits your list, duplic
 detection against what's already on it, and auto-categorized results. Checked
 items collapse by default.
 
-**Milestone 3a (this release):** saved recipes. Tick **💾 Save this recipe** on
-any import's review screen, and it lands in the new **📚 Saved** tab — shared
-with your household. Re-adding "Taco Night" is then two taps: pick the recipe,
-confirm the ingredients.
+**Milestone 3a:** saved recipes. Tick **💾 Save this recipe** on any import's
+review screen and it's kept, shared with your household.
+
+**v4 (this release):** recipes are now a top-level tab. Bottom navigation splits
+the app into **🛒 List** and **📚 Recipes** — the Recipes tab has full-page
+cards, search (by name or ingredient), and a **+ New recipe** button. Tap a
+recipe → review → add: two taps to re-add Taco Night. No database changes
+vs. v3 — if you already ran migration-2.sql, just deploy.
 
 > **⚠️ Upgrading from v2?** Run [`supabase/migration-2.sql`](supabase/migration-2.sql)
 > once in the Supabase SQL Editor before (or after) deploying — it adds the
