@@ -1,11 +1,14 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { supabase } from '../lib/supabase.js';
 import { parseText, parseUrl, parseImage } from '../lib/importApi.js';
 import { categorize, normalizeKey } from '../lib/categorize.js';
 
-// "Add from recipe" flow (Milestone 2): Paste / Link / Photo → review → add.
+// "Add from recipe" flow: Saved / Paste / Link / Photo → review → add.
 // Nothing hits the list until the user confirms on the review screen.
-export default function RecipeImportSheet({ overrides, activeNames, sections, onAdd, onClose }) {
-  const [tab, setTab] = useState('paste'); // paste | url | photo
+// Imported recipes can be saved to the household's recipe library for
+// two-tap re-adding later (Milestone 3a).
+export default function RecipeImportSheet({ householdId, profileId, overrides, activeNames, sections, onAdd, onClose }) {
+  const [tab, setTab] = useState('saved'); // saved | paste | url | photo
   const [step, setStep] = useState('input'); // input | review
   const [text, setText] = useState('');
   const [url, setUrl] = useState('');
@@ -13,8 +16,20 @@ export default function RecipeImportSheet({ overrides, activeNames, sections, on
   const [error, setError] = useState('');
   const [title, setTitle] = useState(null);
   const [rows, setRows] = useState([]);
+  const [savedRecipes, setSavedRecipes] = useState(null); // null = loading
+  const [fromSaved, setFromSaved] = useState(false);
+  const [saveRecipe, setSaveRecipe] = useState(false);
+  const [recipeName, setRecipeName] = useState('');
+  const [sourceUrl, setSourceUrl] = useState(null);
   const fileRef = useRef(null);
   const cameraRef = useRef(null);
+
+  useEffect(() => {
+    supabase.from('recipes').select('*')
+      .eq('household_id', householdId)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setSavedRecipes(data ?? []));
+  }, [householdId]);
 
   function onFilePicked(e) {
     const f = e.target.files?.[0];
@@ -22,12 +37,15 @@ export default function RecipeImportSheet({ overrides, activeNames, sections, on
     if (f) run(() => parseImage(f));
   }
 
-  function toReview(ingredients, recipeTitle = null) {
+  function toReview(ingredients, recipeTitle = null, opts = {}) {
     if (!ingredients.length) {
       setError("Couldn't find any ingredients there. Give it another try, or add items by hand.");
       return;
     }
     setTitle(recipeTitle);
+    setFromSaved(Boolean(opts.fromSaved));
+    setSaveRecipe(false);
+    setRecipeName(recipeTitle ?? '');
     setRows(ingredients.map(ing => {
       const dup = activeNames.has(normalizeKey(ing.name));
       return {
@@ -41,9 +59,10 @@ export default function RecipeImportSheet({ overrides, activeNames, sections, on
     setStep('review');
   }
 
-  async function run(fn) {
+  async function run(fn, srcUrl = null) {
     setBusy(true);
     setError('');
+    setSourceUrl(srcUrl);
     try {
       const result = await fn();
       toReview(result.ingredients, result.title ?? null);
@@ -56,6 +75,30 @@ export default function RecipeImportSheet({ overrides, activeNames, sections, on
 
   function updateRow(i, patch) {
     setRows(prev => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+
+  function openSaved(recipe) {
+    setSourceUrl(recipe.source_url);
+    toReview(recipe.ingredients ?? [], recipe.title, { fromSaved: true });
+  }
+
+  async function deleteSaved(id) {
+    setSavedRecipes(prev => prev.filter(r => r.id !== id));
+    await supabase.from('recipes').delete().eq('id', id);
+  }
+
+  async function confirmAdd() {
+    if (saveRecipe && recipeName.trim()) {
+      const { data } = await supabase.from('recipes').insert({
+        household_id: householdId,
+        title: recipeName.trim(),
+        source_url: sourceUrl,
+        ingredients: rows.map(r => ({ name: r.name.trim(), qty: r.qty?.trim() || null })),
+        added_by: profileId
+      }).select().single();
+      if (data) setSavedRecipes(prev => [data, ...(prev ?? [])]);
+    }
+    onAdd(rows.filter(r => r.include && r.name.trim()));
   }
 
   const includedCount = rows.filter(r => r.include && r.name.trim()).length;
@@ -91,10 +134,31 @@ export default function RecipeImportSheet({ overrides, activeNames, sections, on
               </div>
             </div>
           ))}
+
+          {!fromSaved && (
+            <>
+              <div className="save-toggle-row">
+                <button className={`checkbox ${saveRecipe ? 'on' : ''}`}
+                  onClick={() => setSaveRecipe(s => !s)}
+                  aria-label="Save this recipe">
+                  {saveRecipe ? '✓' : ''}
+                </button>
+                <span>💾 Save this recipe for later</span>
+              </div>
+              {saveRecipe && (
+                <input className="field" placeholder="Recipe name (e.g. Taco Night)"
+                  value={recipeName} onChange={e => setRecipeName(e.target.value)} />
+              )}
+            </>
+          )}
+
           <div style={{ height: 12 }} />
-          <button className="btn" disabled={includedCount === 0}
-            onClick={() => onAdd(rows.filter(r => r.include && r.name.trim()))}>
-            Add {includedCount} item{includedCount === 1 ? '' : 's'} to list
+          <button className="btn"
+            disabled={(includedCount === 0 && !saveRecipe) || (saveRecipe && !recipeName.trim())}
+            onClick={confirmAdd}>
+            {includedCount === 0
+              ? 'Save recipe'
+              : `Add ${includedCount} item${includedCount === 1 ? '' : 's'}${saveRecipe ? ' & save recipe' : ''}`}
           </button>
           <div style={{ height: 8 }} />
           <button className="btn danger-text" onClick={() => setStep('input')}>Back</button>
@@ -109,13 +173,39 @@ export default function RecipeImportSheet({ overrides, activeNames, sections, on
       <div className="sheet">
         <h2>Add from recipe</h2>
         <div className="tabs">
-          {[['paste', '📋 Paste'], ['url', '🔗 Link'], ['photo', '📷 Photo']].map(([key, label]) => (
+          {[['saved', '📚 Saved'], ['paste', '📋 Paste'], ['url', '🔗 Link'], ['photo', '📷 Photo']].map(([key, label]) => (
             <button key={key} className={`tab ${tab === key ? 'active' : ''}`}
               onClick={() => { setTab(key); setError(''); }}>
               {label}
             </button>
           ))}
         </div>
+
+        {tab === 'saved' && (
+          <>
+            {savedRecipes === null && <p className="subtitle">Loading your recipes…</p>}
+            {savedRecipes !== null && savedRecipes.length === 0 && (
+              <p className="subtitle" style={{ padding: '10px 0' }}>
+                No saved recipes yet. Import one from the Paste, Link, or Photo tab and
+                tick <b>“Save this recipe”</b> on the review screen — it'll show up here
+                for two-tap re-adding.
+              </p>
+            )}
+            {(savedRecipes ?? []).map(r => (
+              <div className="recipe-card" key={r.id}>
+                <button className="recipe-card-main" onClick={() => openSaved(r)}>
+                  <span className="recipe-title">{r.title}</span>
+                  <span className="recipe-meta">
+                    {(r.ingredients ?? []).length} ingredients
+                    {r.source_url ? ' · from link' : ''}
+                  </span>
+                </button>
+                <button className="recipe-delete" aria-label={`Delete ${r.title}`}
+                  onClick={() => deleteSaved(r.id)}>✕</button>
+              </div>
+            ))}
+          </>
+        )}
 
         {tab === 'paste' && (
           <>
@@ -135,7 +225,7 @@ export default function RecipeImportSheet({ overrides, activeNames, sections, on
               value={url} onChange={e => setUrl(e.target.value)}
               autoCapitalize="none" autoCorrect="off" inputMode="url" />
             <button className="btn" disabled={busy || !url.trim()}
-              onClick={() => run(() => parseUrl(url.trim()))}>
+              onClick={() => run(() => parseUrl(url.trim()), url.trim())}>
               {busy ? 'Fetching recipe…' : 'Get ingredients'}
             </button>
           </>

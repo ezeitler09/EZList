@@ -127,6 +127,7 @@ export default function ListScreen({ profile, household: initialHousehold }) {
   // Bulk add from the recipe import review screen (Milestone 2)
   async function addImported(rows, source) {
     setShowImport(false);
+    if (!rows.length) return; // e.g. "save recipe only" with nothing included
     const newItems = rows.map(r => ({
       household_id: hid,
       name: r.name.trim(),
@@ -250,6 +251,8 @@ export default function ListScreen({ profile, household: initialHousehold }) {
 
       {showImport && (
         <RecipeImportSheet
+          householdId={hid}
+          profileId={profile.id}
           overrides={overrides}
           sections={sectionOrder}
           activeNames={new Set((items ?? []).filter(i => !i.checked).map(i => normalizeKey(i.name)))}
