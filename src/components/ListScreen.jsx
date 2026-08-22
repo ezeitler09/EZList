@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
-import { categorize, normalizeKey, SECTIONS } from '../lib/categorize.js';
+import { categorize, normalizeKey, itemKey, SECTIONS } from '../lib/categorize.js';
+import { parseRecipeText } from '../lib/parseIngredients.js';
+import PantryView from './PantryView.jsx';
 import ItemEditSheet from './ItemEditSheet.jsx';
 import SettingsSheet from './SettingsSheet.jsx';
 import RecipeImportSheet from './RecipeImportSheet.jsx';
@@ -16,8 +18,9 @@ export default function ListScreen({ profile, household: initialHousehold }) {
   const [showImport, setShowImport] = useState(false);
   const [showChecked, setShowChecked] = useState(false); // collapsed by default
   const [connected, setConnected] = useState(true);
-  const [view, setView] = useState('list'); // list | recipes
+  const [view, setView] = useState('list'); // list | recipes | pantry
   const [savedRecipes, setSavedRecipes] = useState(null); // null = loading
+  const [pantry, setPantry] = useState(null); // null = loading
   const [openRecipe, setOpenRecipe] = useState(null); // recipe tapped on Recipes tab
   const [recipeSearch, setRecipeSearch] = useState('');
   const inputRef = useRef(null);
@@ -29,16 +32,18 @@ export default function ListScreen({ profile, household: initialHousehold }) {
     let channel;
 
     async function load() {
-      const [itemsRes, profilesRes, overridesRes, recipesRes] = await Promise.all([
+      const [itemsRes, profilesRes, overridesRes, recipesRes, pantryRes] = await Promise.all([
         supabase.from('items').select('*').eq('household_id', hid).order('created_at'),
         supabase.from('profiles').select('*').eq('household_id', hid),
         supabase.from('category_overrides').select('*').eq('household_id', hid),
-        supabase.from('recipes').select('*').eq('household_id', hid).order('created_at', { ascending: false })
+        supabase.from('recipes').select('*').eq('household_id', hid).order('created_at', { ascending: false }),
+        supabase.from('pantry_items').select('*').eq('household_id', hid)
       ]);
       setItems(itemsRes.data ?? []);
       setProfiles(Object.fromEntries((profilesRes.data ?? []).map(p => [p.id, p])));
       setOverrides(Object.fromEntries((overridesRes.data ?? []).map(o => [o.item_key, o.category])));
       setSavedRecipes(recipesRes.data ?? []);
+      setPantry(pantryRes.error ? [] : (pantryRes.data ?? []));
 
       // Auto-clear items checked more than 24h ago (1.3)
       const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -67,6 +72,23 @@ export default function ListScreen({ profile, household: initialHousehold }) {
             }
             if (payload.eventType === 'DELETE') {
               return prev.filter(i => i.id !== payload.old.id);
+            }
+            return prev;
+          });
+        })
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'pantry_items', filter: `household_id=eq.${hid}` },
+        payload => {
+          setPantry(prev => {
+            if (prev === null) return prev;
+            if (payload.eventType === 'INSERT') {
+              return prev.some(p => p.id === payload.new.id) ? prev : [...prev, payload.new];
+            }
+            if (payload.eventType === 'UPDATE') {
+              return prev.map(p => (p.id === payload.new.id ? payload.new : p));
+            }
+            if (payload.eventType === 'DELETE') {
+              return prev.filter(p => p.id !== payload.old.id);
             }
             return prev;
           });
@@ -110,6 +132,62 @@ export default function ListScreen({ profile, household: initialHousehold }) {
     const checked_at = checked ? new Date().toISOString() : null;
     setItems(prev => prev.map(i => (i.id === item.id ? { ...i, checked, checked_at } : i)));
     await supabase.from('items').update({ checked, checked_at }).eq('id', item.id);
+    // Auto-stock (Milestone 4): checking off at the store = it's coming home.
+    // Unchecking (mis-tap) reverses it.
+    if (household.auto_stock !== false) {
+      await stockPantry(item.name, checked ? +1 : -1, { createIfMissing: checked });
+    }
+  }
+
+  // ---------- Pantry (Milestone 4) ----------
+  async function stockPantry(name, delta, { createIfMissing = true, exactQty = null } = {}) {
+    const key = itemKey(name);
+    const existing = (pantry ?? []).find(p => p.name_key === key);
+    if (existing) {
+      const qty = exactQty !== null ? exactQty : Math.max(0, existing.qty + delta);
+      if (qty === existing.qty) return;
+      setPantry(prev => prev.map(p => (p.id === existing.id ? { ...p, qty } : p)));
+      await supabase.from('pantry_items').update({ qty, updated_at: new Date().toISOString() }).eq('id', existing.id);
+    } else if (createIfMissing && (exactQty ?? delta) > 0) {
+      const row = {
+        household_id: hid,
+        name: name.trim(),
+        name_key: key,
+        qty: exactQty ?? delta,
+        category: categorize(name, overrides)
+      };
+      const { data } = await supabase.from('pantry_items').insert(row).select().single();
+      if (data) setPantry(prev => (prev ?? []).some(p => p.id === data.id) ? prev : [...(prev ?? []), data]);
+    }
+  }
+
+  async function deletePantryItem(p) {
+    setPantry(prev => (prev ?? []).filter(x => x.id !== p.id));
+    await supabase.from('pantry_items').delete().eq('id', p.id);
+  }
+
+  async function bulkAddPantry(text) {
+    const parsed = parseRecipeText(text);
+    for (const ing of parsed) {
+      const count = parseInt((ing.qty ?? '').match(/^(\d+)/)?.[1] ?? '1', 10) || 1;
+      await stockPantry(ing.name, count);
+    }
+  }
+
+  async function cookRecipe(r) {
+    const keys = new Set((r.ingredients ?? []).map(i => itemKey(i.name)));
+    const matches = (pantry ?? []).filter(p => keys.has(p.name_key) && p.qty > 0);
+    if (!matches.length) {
+      alert(`Nothing in the pantry matched "${r.title}" — no counts changed.`);
+      return;
+    }
+    const nowOut = [];
+    for (const p of matches) {
+      if (p.qty - 1 === 0) nowOut.push(p.name);
+      await stockPantry(p.name, -1, { createIfMissing: false });
+    }
+    alert(`Cooked "${r.title}" — reduced ${matches.length} pantry item${matches.length === 1 ? '' : 's'}.`
+      + (nowOut.length ? `\nNow out: ${nowOut.join(', ')}` : ''));
   }
 
   async function saveItemEdit(item, updates) {
@@ -131,7 +209,7 @@ export default function ListScreen({ profile, household: initialHousehold }) {
   }
 
   // Bulk add from the recipe import review screen (Milestone 2)
-  async function addImported(rows, source) {
+  async function addImported(rows, source, goToList = true) {
     setShowImport(false);
     if (!rows.length) return; // e.g. "save recipe only" with nothing included
     const newItems = rows.map(r => ({
@@ -151,7 +229,7 @@ export default function ListScreen({ profile, household: initialHousehold }) {
       const known = new Set(prev.map(i => i.id));
       return [...prev, ...data.filter(d => !known.has(d.id))];
     });
-    setView('list'); // show the result of the add
+    if (goToList) setView('list'); // show the result of the add
   }
 
   async function deleteRecipe(id) {
@@ -192,6 +270,18 @@ export default function ListScreen({ profile, household: initialHousehold }) {
   }, [items, sectionOrder]);
 
   const activeCount = (items ?? []).filter(i => !i.checked).length;
+
+  const activeKeys = useMemo(
+    () => new Set((items ?? []).filter(i => !i.checked).map(i => normalizeKey(i.name))),
+    [items]
+  );
+
+  const pantryByKey = useMemo(
+    () => Object.fromEntries((pantry ?? []).map(p => [p.name_key, p.qty])),
+    [pantry]
+  );
+
+  const inStockCount = (pantry ?? []).filter(p => p.qty > 0).length;
 
   const filteredRecipes = useMemo(() => {
     const q = recipeSearch.trim().toLowerCase();
@@ -279,6 +369,8 @@ export default function ListScreen({ profile, household: initialHousehold }) {
                   {r.source_url ? ' · from link' : ''}
                 </span>
               </button>
+              <button className="icon-btn" aria-label={`Mark ${r.title} cooked`}
+                title="Cooked it — reduce pantry" onClick={() => cookRecipe(r)}>🍳</button>
               <button className="recipe-delete" aria-label={`Delete ${r.title}`}
                 onClick={() => deleteRecipe(r.id)}>✕</button>
             </div>
@@ -287,6 +379,23 @@ export default function ListScreen({ profile, household: initialHousehold }) {
             <p className="empty">No recipes match “{recipeSearch}”.</p>
           )}
         </main>
+      )}
+
+      {view === 'pantry' && (
+        <PantryView
+          pantry={pantry}
+          sectionOrder={sectionOrder}
+          activeKeys={activeKeys}
+          normalizeKey={normalizeKey}
+          onChangeQty={(p, d) => stockPantry(p.name, d, { createIfMissing: false })}
+          onDelete={deletePantryItem}
+          onAddToList={p => addImported([{ name: p.name, qty: '', category: p.category }], 'pantry', false)}
+          onAddAllOut={() => addImported(
+            (pantry ?? []).filter(p => p.qty === 0 && !activeKeys.has(normalizeKey(p.name)))
+              .map(p => ({ name: p.name, qty: '', category: p.category })),
+            'pantry'
+          )}
+          onBulkAdd={bulkAddPantry} />
       )}
 
       {view === 'list' && (
@@ -310,6 +419,10 @@ export default function ListScreen({ profile, household: initialHousehold }) {
           <span className="nav-icon">📚</span>
           Recipes{savedRecipes?.length ? ` (${savedRecipes.length})` : ''}
         </button>
+        <button className={`nav-tab ${view === 'pantry' ? 'active' : ''}`} onClick={() => setView('pantry')}>
+          <span className="nav-icon">🥫</span>
+          Pantry{inStockCount ? ` (${inStockCount})` : ''}
+        </button>
       </nav>
 
       {editing && (
@@ -325,7 +438,8 @@ export default function ListScreen({ profile, household: initialHousehold }) {
           profileId={profile.id}
           overrides={overrides}
           sections={sectionOrder}
-          activeNames={new Set((items ?? []).filter(i => !i.checked).map(i => normalizeKey(i.name)))}
+          activeNames={activeKeys}
+          pantryByKey={pantryByKey}
           initialRecipe={openRecipe}
           onAdd={rows => { setOpenRecipe(null); addImported(rows, 'recipe'); }}
           onClose={() => { setShowImport(false); setOpenRecipe(null); }}
@@ -335,6 +449,10 @@ export default function ListScreen({ profile, household: initialHousehold }) {
       {showSettings && (
         <SettingsSheet household={household} profile={profile} profiles={profiles}
           sectionOrder={sectionOrder} onSaveOrder={saveSectionOrder}
+          onToggleAutoStock={async v => {
+            setHousehold(prev => ({ ...prev, auto_stock: v }));
+            await supabase.from('households').update({ auto_stock: v }).eq('id', hid);
+          }}
           onClose={() => setShowSettings(false)} />
       )}
     </>

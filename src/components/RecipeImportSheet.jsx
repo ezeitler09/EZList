@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 import { parseText, parseUrl, parseImage } from '../lib/importApi.js';
-import { categorize, normalizeKey } from '../lib/categorize.js';
+import { categorize, normalizeKey, itemKey } from '../lib/categorize.js';
 
 // Recipe import flow: Paste / Link / Photo → review → add.
 // Nothing hits the list until the user confirms on the review screen.
@@ -9,7 +9,7 @@ import { categorize, normalizeKey } from '../lib/categorize.js';
 // opens straight into the review screen for that saved recipe.
 export default function RecipeImportSheet({
   householdId, profileId, overrides, activeNames, sections,
-  initialRecipe = null, onAdd, onClose, onRecipeSaved
+  pantryByKey = {}, initialRecipe = null, onAdd, onClose, onRecipeSaved
 }) {
   const [tab, setTab] = useState('paste'); // paste | url | photo
   const [step, setStep] = useState('input'); // input | review
@@ -51,9 +51,11 @@ export default function RecipeImportSheet({
     setRecipeName(recipeTitle ?? '');
     setRows(ingredients.map(ing => {
       const dup = activeNames.has(normalizeKey(ing.name));
+      const pantryQty = pantryByKey[itemKey(ing.name)] ?? 0;
       return {
-        include: !dup,
+        include: !dup && pantryQty === 0,
         dup,
+        pantryQty,
         name: ing.name,
         qty: ing.qty ?? '',
         category: categorize(ing.name, overrides)
@@ -124,6 +126,9 @@ export default function RecipeImportSheet({
                   </select>
                 </div>
                 {row.dup && <span className="dup-badge">already on your list</span>}
+                {!row.dup && row.pantryQty > 0 && (
+                  <span className="dup-badge">🥫 in pantry ({row.pantryQty})</span>
+                )}
               </div>
             </div>
           ))}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function SettingsSheet({ household, profile, profiles, sectionOrder, onSaveOrder, onClose }) {
+export default function SettingsSheet({ household, profile, profiles, sectionOrder, onSaveOrder, onToggleAutoStock, onClose }) {
   const [order, setOrder] = useState(sectionOrder);
   const joinUrl = `${window.location.origin}${window.location.pathname}?join=${household.code}`;
 
@@ -44,6 +44,19 @@ export default function SettingsSheet({ household, profile, profiles, sectionOrd
               {m.display_name}{m.id === profile.id ? ' (you)' : ''}
             </span>
           ))}
+        </div>
+
+        <label>Pantry</label>
+        <div className="section-order-row" style={{ borderBottom: 'none' }}>
+          <span style={{ paddingRight: 10 }}>
+            Auto-stock: checked-off items go into the pantry
+          </span>
+          <button
+            className={`checkbox ${household.auto_stock !== false ? 'on' : ''}`}
+            aria-label="Toggle auto-stock"
+            onClick={() => onToggleAutoStock(!(household.auto_stock !== false))}>
+            {household.auto_stock !== false ? '✓' : ''}
+          </button>
         </div>
 
         <label>Store section order (match your store's layout)</label>

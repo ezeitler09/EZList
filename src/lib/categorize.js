@@ -105,6 +105,15 @@ export function normalizeKey(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+// Matching key for pantry lookups: normalized + last word singularized,
+// so "Eggs" / "egg" and "Tortillas" / "tortilla" match each other.
+export function itemKey(name) {
+  const tokens = normalizeKey(name).split(' ');
+  if (!tokens.length || !tokens[0]) return normalizeKey(name);
+  tokens[tokens.length - 1] = singularize(tokens[tokens.length - 1]);
+  return tokens.join(' ');
+}
+
 function singularize(token) {
   if (token.length > 3 && token.endsWith('ies')) return token.slice(0, -3) + 'y';
   if (token.length > 3 && token.endsWith('es')) return token.slice(0, -2);

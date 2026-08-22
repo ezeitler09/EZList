@@ -1,4 +1,4 @@
-# 🛒 EZList — Shared Grocery List (v4)
+# 🛒 EZList — Shared Grocery List (v5)
 
 A mobile-friendly shared grocery list for your household. Real-time sync between
 your phones, tap-to-check items, automatic grouping by store section, and
@@ -16,11 +16,20 @@ items collapse by default.
 **Milestone 3a:** saved recipes. Tick **💾 Save this recipe** on any import's
 review screen and it's kept, shared with your household.
 
-**v4 (this release):** recipes are now a top-level tab. Bottom navigation splits
+**v4:** recipes are a top-level tab. Bottom navigation splits
 the app into **🛒 List** and **📚 Recipes** — the Recipes tab has full-page
 cards, search (by name or ingredient), and a **+ New recipe** button. Tap a
-recipe → review → add: two taps to re-add Taco Night. No database changes
-vs. v3 — if you already ran migration-2.sql, just deploy.
+recipe → review → add: two taps to re-add Taco Night.
+
+**v5 (this release): 🥫 Pantry.** Track what you already have. Counts with +/−
+steppers (0 = out, greyed, one tap back onto the list); checking items off at
+the store stocks the pantry automatically (toggle in ⚙️ Settings, and
+unchecking reverses it); recipe imports flag "🥫 in pantry (n)" and leave those
+unchecked; a 🍳 Cooked It button on each saved recipe knocks its ingredients
+down by one and tells you what ran out; bulk baseline entry by pasting a list
+("2 cans black beans" stocks 2). **Requires running
+[`supabase/migration-3.sql`](supabase/migration-3.sql) once** in the SQL Editor
+(new query tab, paste, Run — additive only, live data untouched).
 
 > **⚠️ Upgrading from v2?** Run [`supabase/migration-2.sql`](supabase/migration-2.sql)
 > once in the Supabase SQL Editor before (or after) deploying — it adds the
@@ -114,4 +123,6 @@ src/lib/supabase.js        # client config (env vars or one-time paste)
 
 ## Roadmap
 
-- **Milestone 3:** autocomplete from history, offline edit queue, saved recipes library, polish.
+- Autocomplete from item history; offline edit queue; multiple named lists.
+- Voice input (in-app mic; Alexa/Siri parked — see project notes).
+- Pantry expiration dates / "use it up" suggestions.
